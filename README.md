@@ -4,6 +4,16 @@ A small Spring Boot REST API for a personal task manager, with two AI-powered
 endpoints that use OpenAI to turn natural language into structured tasks and to
 break down complex tasks into subtasks.
 
+## Quick start
+
+```bash
+./gradlew bootRun
+```
+
+Then open **http://localhost:8080** in a browser. That's it — the app boots in
+**stub mode** (deterministic canned AI responses) with no setup. For real
+OpenAI calls, see [Stub mode](#stub-mode).
+
 ## Prerequisites
 
 - Java 17 (any vendor; Temurin recommended).
