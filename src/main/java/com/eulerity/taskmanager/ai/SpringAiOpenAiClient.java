@@ -9,6 +9,7 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 
+import java.time.LocalDate;
 import java.util.List;
 
 public class SpringAiOpenAiClient implements OpenAiClient {
@@ -23,7 +24,7 @@ public class SpringAiOpenAiClient implements OpenAiClient {
     public SuggestedTask suggest(String wrappedUserText) {
         try {
             return chat.prompt(new Prompt(List.of(
-                            new SystemMessage(Prompts.SUGGEST_SYSTEM),
+                            new SystemMessage(Prompts.suggestSystem(LocalDate.now())),
                             new UserMessage(wrappedUserText))))
                     .call()
                     .entity(SuggestedTask.class);
