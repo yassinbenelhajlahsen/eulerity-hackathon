@@ -4,20 +4,57 @@
   <meta charset="utf-8">
   <title>Task Manager</title>
   <style>
-    body { font-family: ui-monospace, monospace; margin: 2rem; max-width: 980px; }
+    body { font-family: ui-monospace, monospace; margin: 2rem; max-width: 980px; color: #222; }
     h1 { margin-bottom: 0.25rem; }
     .stub-badge { display: none; background: #fff5b1; padding: 0.4rem 0.8rem;
                   border: 1px solid #d4a017; border-radius: 4px; margin-bottom: 1rem; }
     .stub-badge.on { display: inline-block; }
     section { border-top: 1px solid #ccc; padding: 1rem 0; }
     table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: left; }
+    th, td { border: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; }
     th { background: #f4f4f4; }
-    input, select, textarea, button { font: inherit; padding: 0.3rem; }
-    textarea { width: 100%; min-height: 70px; }
+    input, select, textarea, button { font: inherit; padding: 0.35rem; }
+    textarea { width: 100%; min-height: 70px; box-sizing: border-box; }
     .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-    pre { background: #f7f7f7; padding: 0.7rem; overflow: auto; }
+    button[disabled] { opacity: 0.55; cursor: not-allowed; }
     .err { color: #a00; }
+    .muted { color: #777; }
+    .ok { color: #1a7f37; }
+
+    /* Output cards for AI results */
+    .card { border: 1px solid #d0d7de; border-radius: 6px; padding: 0.8rem 1rem;
+            background: #fafbfc; margin-top: 0.75rem; }
+    .card h3 { margin: 0 0 0.5rem 0; font-size: 1rem; }
+    .field { display: grid; grid-template-columns: 110px 1fr; gap: 0.5rem; padding: 0.15rem 0; }
+    .field .label { color: #57606a; }
+    .field .value { word-break: break-word; }
+    .pill { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 10px;
+            font-size: 0.85em; border: 1px solid; }
+    .pill.LOW    { color: #1a7f37; border-color: #aceebb; background: #dafbe1; }
+    .pill.MEDIUM { color: #9a6700; border-color: #fae17d; background: #fff8c5; }
+    .pill.HIGH   { color: #cf222e; border-color: #ffcecb; background: #ffebe9; }
+    .pill.TODO        { color: #0969da; border-color: #b6e3ff; background: #ddf4ff; }
+    .pill.IN_PROGRESS { color: #9a6700; border-color: #fae17d; background: #fff8c5; }
+    .pill.DONE        { color: #1a7f37; border-color: #aceebb; background: #dafbe1; }
+
+    /* Subtask list */
+    ol.subtasks { padding-left: 1.4rem; margin: 0; }
+    ol.subtasks li { padding: 0.25rem 0; }
+    ol.subtasks .meta { color: #57606a; font-size: 0.9em; margin-left: 0.4rem; }
+
+    /* Spinner */
+    .spinner { display: inline-block; width: 0.9em; height: 0.9em;
+               border: 2px solid #999; border-top-color: transparent;
+               border-radius: 50%; animation: spin 0.8s linear infinite;
+               vertical-align: -2px; margin-right: 0.4rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    details.raw { margin-top: 0.6rem; }
+    details.raw summary { cursor: pointer; color: #57606a; font-size: 0.9em; }
+    details.raw pre { background: #f6f8fa; padding: 0.7rem; overflow: auto;
+                      border-radius: 4px; font-size: 0.85em; margin: 0.4rem 0 0 0; }
+    pre.create-out { background: #f6f8fa; padding: 0.7rem; overflow: auto;
+                     border-radius: 4px; font-size: 0.85em; margin: 0.6rem 0 0 0; }
   </style>
 </head>
 <body>
@@ -45,29 +82,29 @@
       <select id="cPriority">
         <option>LOW</option><option selected>MEDIUM</option><option>HIGH</option>
       </select>
-      <button onclick="createTask()">Create</button>
+      <button id="createBtn" data-label="Create" onclick="createTask()">Create</button>
     </div>
     <textarea id="cDesc" placeholder="description (optional)"></textarea>
-    <pre id="cOut"></pre>
+    <div id="cOut"></div>
   </section>
 
   <section>
     <h2>AI: suggest from text</h2>
     <textarea id="sText" placeholder="e.g. remind me to submit the quarterly report before Friday"></textarea>
     <div class="row">
-      <button onclick="suggest()">Suggest</button>
-      <button onclick="acceptSuggestion()" id="acceptBtn" disabled>Accept &amp; save</button>
+      <button id="suggestBtn" data-label="Suggest" onclick="suggest()">Suggest</button>
+      <button id="acceptBtn"  data-label="Accept &amp; save" onclick="acceptSuggestion()" disabled>Accept &amp; save</button>
     </div>
-    <pre id="sOut"></pre>
+    <div id="sOut"></div>
   </section>
 
   <section>
     <h2>AI: break down existing task</h2>
     <div class="row">
       <select id="bTask"></select>
-      <button onclick="breakdown()">Break down</button>
+      <button id="breakdownBtn" data-label="Break down" onclick="breakdown()">Break down</button>
     </div>
-    <pre id="bOut"></pre>
+    <div id="bOut"></div>
   </section>
 
 <script>
@@ -84,6 +121,30 @@ async function api(path, opts = {}) {
   return body;
 }
 
+/**
+ * Wrap an async operation with a loading state on the button:
+ * disables it, swaps its label for a spinner + "<verb>...", restores
+ * on completion (success or error). Other buttons can be passed in
+ * `alsoDisable` to lock them out during the request too.
+ */
+async function withBusy(buttonId, busyLabel, fn, alsoDisable = []) {
+  const btn = document.getElementById(buttonId);
+  const original = btn.dataset.label;
+  const lockedExtra = alsoDisable.map(id => document.getElementById(id))
+                                 .filter(Boolean);
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span>${busyLabel}`;
+  lockedExtra.forEach(b => b.disabled = true);
+  try {
+    return await fn();
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = original;
+    // Don't auto-re-enable extra buttons — the caller manages their state
+    // (e.g. acceptBtn stays disabled until there's a suggestion to save).
+  }
+}
+
 async function refreshStubBadge() {
   try {
     const m = await api('/meta');
@@ -97,12 +158,18 @@ async function loadTasks() {
   tbody.innerHTML = '';
   const sel = document.getElementById('bTask');
   sel.innerHTML = '';
+  if (tasks.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">No tasks yet — create one below or use AI suggest.</td></tr>';
+  }
   for (const t of tasks) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${t.id}</td><td>${escapeHtml(t.title)}</td>
-                    <td>${t.priority}</td><td>${t.status}</td>
-                    <td>${t.dueDate ?? ''}</td>
-                    <td><button data-id="${t.id}" class="del">Delete</button></td>`;
+    tr.innerHTML =
+        `<td>${t.id}</td>
+         <td>${escapeHtml(t.title)}</td>
+         <td><span class="pill ${t.priority}">${t.priority}</span></td>
+         <td><span class="pill ${t.status}">${t.status}</span></td>
+         <td>${t.dueDate ?? ''}</td>
+         <td><button data-id="${t.id}" class="del">Delete</button></td>`;
     tbody.appendChild(tr);
     const opt = document.createElement('option');
     opt.value = t.id;
@@ -110,7 +177,12 @@ async function loadTasks() {
     sel.appendChild(opt);
   }
   for (const btn of document.querySelectorAll('button.del')) {
-    btn.onclick = async () => { await api('/tasks/' + btn.dataset.id, { method: 'DELETE' }); loadTasks(); };
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = 'Deleting…';
+      try { await api('/tasks/' + btn.dataset.id, { method: 'DELETE' }); loadTasks(); }
+      catch (e) { btn.disabled = false; btn.textContent = 'Delete'; }
+    };
   }
 }
 
@@ -120,58 +192,125 @@ function escapeHtml(s) {
   }[c]));
 }
 
+function renderError(container, e) {
+  const status = e.status ?? '?';
+  const body = e.body ? JSON.stringify(e.body, null, 2) : String(e.message || e);
+  container.innerHTML =
+    `<div class="card"><span class="err">Request failed (HTTP ${status})</span>
+       <details class="raw" open><summary>Response body</summary>
+         <pre>${escapeHtml(body)}</pre>
+       </details>
+     </div>`;
+}
+
+function renderRaw(obj) {
+  return `<details class="raw"><summary>View raw JSON</summary>
+            <pre>${escapeHtml(JSON.stringify(obj, null, 2))}</pre>
+          </details>`;
+}
+
 async function createTask() {
   const out = document.getElementById('cOut');
-  try {
-    const body = {
-      title: document.getElementById('cTitle').value,
-      description: document.getElementById('cDesc').value || null,
-      dueDate: document.getElementById('cDue').value || null,
-      priority: document.getElementById('cPriority').value
-    };
-    const r = await api('/tasks', { method: 'POST', body: JSON.stringify(body) });
-    out.textContent = JSON.stringify(r, null, 2);
-    loadTasks();
-  } catch (e) {
-    out.innerHTML = `<span class="err">${e.status}</span>\n${JSON.stringify(e.body, null, 2)}`;
-  }
+  await withBusy('createBtn', 'Creating…', async () => {
+    try {
+      const body = {
+        title: document.getElementById('cTitle').value,
+        description: document.getElementById('cDesc').value || null,
+        dueDate: document.getElementById('cDue').value || null,
+        priority: document.getElementById('cPriority').value
+      };
+      const r = await api('/tasks', { method: 'POST', body: JSON.stringify(body) });
+      out.innerHTML =
+        `<div class="card">
+           <span class="ok">✓ Created task #${r.id}: ${escapeHtml(r.title)}</span>
+           ${renderRaw(r)}
+         </div>`;
+      loadTasks();
+    } catch (e) {
+      renderError(out, e);
+    }
+  });
+}
+
+function renderSuggestion(s) {
+  const due = s.dueDate ? escapeHtml(s.dueDate) : '<span class="muted">none</span>';
+  const desc = s.description
+      ? escapeHtml(s.description)
+      : '<span class="muted">(empty)</span>';
+  return `
+    <div class="card">
+      <h3>Suggested task</h3>
+      <div class="field"><span class="label">Title</span><span class="value">${escapeHtml(s.title)}</span></div>
+      <div class="field"><span class="label">Description</span><span class="value">${desc}</span></div>
+      <div class="field"><span class="label">Due date</span><span class="value">${due}</span></div>
+      <div class="field"><span class="label">Priority</span><span class="value"><span class="pill ${s.priority}">${s.priority}</span></span></div>
+      <div class="field"><span class="label">Status</span><span class="value"><span class="pill ${s.status}">${s.status}</span></span></div>
+      ${renderRaw(s)}
+    </div>`;
 }
 
 async function suggest() {
   const out = document.getElementById('sOut');
-  try {
-    const r = await api('/tasks/suggest', {
-      method: 'POST',
-      body: JSON.stringify({ text: document.getElementById('sText').value })
-    });
-    lastSuggestion = r;
-    document.getElementById('acceptBtn').disabled = false;
-    out.textContent = JSON.stringify(r, null, 2);
-  } catch (e) {
-    out.innerHTML = `<span class="err">${e.status}</span>\n${JSON.stringify(e.body, null, 2)}`;
-  }
+  await withBusy('suggestBtn', 'Thinking…', async () => {
+    document.getElementById('acceptBtn').disabled = true;
+    try {
+      const r = await api('/tasks/suggest', {
+        method: 'POST',
+        body: JSON.stringify({ text: document.getElementById('sText').value })
+      });
+      lastSuggestion = r;
+      out.innerHTML = renderSuggestion(r);
+      document.getElementById('acceptBtn').disabled = false;
+    } catch (e) {
+      lastSuggestion = null;
+      renderError(out, e);
+    }
+  });
 }
 
 async function acceptSuggestion() {
   if (!lastSuggestion) return;
-  try {
-    await api('/tasks', { method: 'POST', body: JSON.stringify(lastSuggestion) });
-    loadTasks();
-  } catch (e) {
-    document.getElementById('sOut').innerHTML += `\n<span class="err">save failed: ${JSON.stringify(e.body)}</span>`;
-  }
+  const out = document.getElementById('sOut');
+  await withBusy('acceptBtn', 'Saving…', async () => {
+    try {
+      const saved = await api('/tasks', { method: 'POST', body: JSON.stringify(lastSuggestion) });
+      out.innerHTML = renderSuggestion(lastSuggestion) +
+        `<div class="card"><span class="ok">✓ Saved as task #${saved.id}</span></div>`;
+      lastSuggestion = null;
+      document.getElementById('acceptBtn').disabled = true;
+      loadTasks();
+    } catch (e) {
+      renderError(out, e);
+    }
+  });
+}
+
+function renderBreakdown(b) {
+  const items = b.subtasks.map(s => `
+    <li>
+      ${escapeHtml(s.title)}
+      <span class="meta">— ${s.estimatedMinutes} min, <span class="pill ${s.priority}">${s.priority}</span></span>
+    </li>`).join('');
+  return `
+    <div class="card">
+      <h3>Subtasks for task #${b.taskId}</h3>
+      <ol class="subtasks">${items}</ol>
+      ${renderRaw(b)}
+    </div>`;
 }
 
 async function breakdown() {
   const id = document.getElementById('bTask').value;
   const out = document.getElementById('bOut');
-  if (!id) { out.textContent = 'no task selected'; return; }
-  try {
-    const r = await api('/tasks/' + id + '/breakdown', { method: 'POST' });
-    out.textContent = JSON.stringify(r, null, 2);
-  } catch (e) {
-    out.innerHTML = `<span class="err">${e.status}</span>\n${JSON.stringify(e.body, null, 2)}`;
-  }
+  if (!id) { out.innerHTML = '<span class="muted">No task selected.</span>'; return; }
+  await withBusy('breakdownBtn', 'Thinking…', async () => {
+    try {
+      const r = await api('/tasks/' + id + '/breakdown', { method: 'POST' });
+      out.innerHTML = renderBreakdown(r);
+    } catch (e) {
+      renderError(out, e);
+    }
+  });
 }
 
 refreshStubBadge();
