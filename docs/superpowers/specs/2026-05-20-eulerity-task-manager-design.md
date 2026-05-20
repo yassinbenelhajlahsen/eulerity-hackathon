@@ -208,6 +208,12 @@ Two implementations, wired in `SpringAiConfig`:
     "status": "TODO"
   }
   ```
+  `<first 80 chars>` means the first 80 characters of the user's **actual text**.
+  At runtime `AiTaskService` wraps user input in `USER_INPUT_*` sentinels before
+  calling `OpenAiClient.suggest()`, so the stub strips those sentinels (and any
+  leading/trailing whitespace introduced by wrapping newlines) before computing
+  the echo. Reviewers in stub mode see their original input, not the wrapping
+  artifacts. Asserted by `StubOpenAiClientTest.suggest_whenInputIsSentinelWrapped_echoIsCleanUserText`.
 
   `breakdown(task)`:
   ```json

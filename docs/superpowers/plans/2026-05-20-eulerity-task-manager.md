@@ -1124,6 +1124,7 @@ package com.eulerity.taskmanager.ai;
 
 import com.eulerity.taskmanager.ai.dto.BreakdownResponse;
 import com.eulerity.taskmanager.ai.dto.SuggestedTask;
+import com.eulerity.taskmanager.ai.prompts.Prompts;
 import com.eulerity.taskmanager.task.Priority;
 import com.eulerity.taskmanager.task.Status;
 import com.eulerity.taskmanager.task.Task;
@@ -1154,6 +1155,22 @@ class StubOpenAiClientTest {
         // Description echoes only the first 80 chars
         assertThat(r.description()).contains("x".repeat(80));
         assertThat(r.description()).doesNotContain("x".repeat(81));
+    }
+
+    @Test
+    void suggest_whenInputIsSentinelWrapped_echoIsCleanUserText() {
+        // Reflects what AiTaskService actually passes at runtime: user text
+        // wrapped between USER_INPUT_BEGIN / USER_INPUT_END. The stub must
+        // strip the wrapping before echoing or reviewers see the sentinel
+        // strings in their "stub mode" output.
+        String wrapped = Prompts.USER_INPUT_BEGIN + "\nremind me to buy milk\n" + Prompts.USER_INPUT_END;
+        SuggestedTask r = stub.suggest(wrapped);
+
+        assertThat(r.description()).contains("remind me to buy milk");
+        assertThat(r.description()).doesNotContain(Prompts.USER_INPUT_BEGIN);
+        assertThat(r.description()).doesNotContain(Prompts.USER_INPUT_END);
+        int echoIdx = r.description().indexOf("Echo of input: ") + "Echo of input: ".length();
+        assertThat(r.description().substring(echoIdx)).startsWith("remind");
     }
 
     @Test
@@ -1214,6 +1231,7 @@ package com.eulerity.taskmanager.ai;
 import com.eulerity.taskmanager.ai.dto.BreakdownResponse;
 import com.eulerity.taskmanager.ai.dto.Subtask;
 import com.eulerity.taskmanager.ai.dto.SuggestedTask;
+import com.eulerity.taskmanager.ai.prompts.Prompts;
 import com.eulerity.taskmanager.task.Priority;
 import com.eulerity.taskmanager.task.Status;
 import com.eulerity.taskmanager.task.Task;
@@ -1224,7 +1242,14 @@ public class StubOpenAiClient implements OpenAiClient {
 
     @Override
     public SuggestedTask suggest(String userText) {
-        String echo = userText == null ? "" : userText.substring(0, Math.min(80, userText.length()));
+        // AiTaskService wraps user text in sentinels before calling .suggest().
+        // Strip them here so the echoed preview is the user's actual text, not
+        // the wrapping artifacts. Only depends on public Prompts constants.
+        String cleaned = userText == null ? "" : userText
+                .replace(Prompts.USER_INPUT_BEGIN, "")
+                .replace(Prompts.USER_INPUT_END, "")
+                .strip();
+        String echo = cleaned.substring(0, Math.min(80, cleaned.length()));
         return new SuggestedTask(
                 "[STUB] Example task suggestion",
                 "Stub AI response. Set OPENAI_API_KEY to enable real suggestions. Echo of input: " + echo,
