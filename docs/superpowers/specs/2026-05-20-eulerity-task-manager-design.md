@@ -190,6 +190,15 @@ Two implementations, wired in `SpringAiConfig`:
 - **`StubOpenAiClient`** — returns deterministic canned data. Selected by
   default when no OpenAI key is configured.
 
+**Chat options live in one place only.** Model name, temperature, and any
+other `OpenAiChatOptions` are configured exclusively via
+`application.yml` under `spring.ai.openai.chat.options.*` (see §10). We do
+**not** call `ChatClient.Builder.defaultOptions(...)` and do **not** pass
+per-call `.options(...)`. Spring AI's precedence (per-call > builder defaults
+> properties) means setting the same option in two places silently picks the
+higher-precedence one; keeping config in a single location avoids that class of
+bug entirely.
+
 Selection (in `SpringAiConfig`):
 
 ```java
@@ -332,6 +341,10 @@ spring:
         options:
           model: gpt-4.1-mini
           temperature: 0.2
+          # All chat options live HERE only. Do not duplicate in
+          # ChatClient.Builder.defaultOptions() or per-call .options() —
+          # Spring AI precedence is per-call > builder > yml, so duplicates
+          # silently override. Single source of truth = this yml block.
   jpa:
     hibernate:
       ddl-auto: update
