@@ -36,6 +36,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // All OpenAI auto-configurations are excluded because they assert a non-empty
 // api-key at context startup and are entirely superseded by the @Primary mock.
 @SpringBootTest(properties = {
+        // Also pin OPENAI_API_KEY= so SpringAiConfig picks stub mode regardless of
+        // any .env file in the developer's working directory (DotEnvEnvironmentPostProcessor
+        // would otherwise leak the real key into tests and crash on the excluded auto-config).
+        "OPENAI_API_KEY=",
         "spring.ai.openai.api-key=",
         "spring.autoconfigure.exclude=" +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration," +

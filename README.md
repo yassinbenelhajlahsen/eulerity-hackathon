@@ -9,7 +9,10 @@ break down complex tasks into subtasks.
 - Java 17 (any vendor; Temurin recommended).
 - Internet access (for Gradle dependency resolution on first run).
 - `OPENAI_API_KEY` (optional). Without it, the app boots in **stub mode** — AI
-  endpoints return deterministic canned data.
+  endpoints return deterministic canned data. The key can be supplied either as
+  an exported environment variable OR via a `.env` file in the project root
+  (single line: `OPENAI_API_KEY=sk-...`). The OS environment wins if both are
+  set. `.env` is gitignored.
 
 ## Run
 
@@ -45,12 +48,25 @@ Set OPENAI_API_KEY in your environment to enable real calls.
 ```
 
 The UI also shows a `[STUB MODE]` badge in the header so you don't mistake
-canned data for real AI output. To enable real calls:
+canned data for real AI output. To enable real calls, either export the
+variable:
 
 ```bash
 export OPENAI_API_KEY=sk-...
 ./gradlew bootRun
 ```
+
+…or drop a `.env` file at the project root:
+
+```bash
+echo 'OPENAI_API_KEY=sk-...' > .env
+./gradlew bootRun
+```
+
+A `DotEnvEnvironmentPostProcessor` loads `.env` into the Spring environment
+on boot. The OS environment still wins if the variable is set in both places
+(matches how docker-compose and most dotenv tools behave). `.env` is
+gitignored so the key won't accidentally land in a commit.
 
 ## Endpoints
 
