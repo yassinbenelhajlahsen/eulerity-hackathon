@@ -75,9 +75,12 @@ public class AiTaskService {
         flagSuspicious(sanitized);
 
         // Reconstruct a sanitized Task to hand to the client (don't mutate the persisted one).
+        // Both title and description are user-supplied via POST /tasks, so BOTH get the
+        // full defense-#3 treatment: control-strip and sentinel-wrap. Treating title as
+        // "trusted" because it's short would leave an injection vector wide open.
         Task safe = new Task();
         safe.setId(t.getId());
-        safe.setTitle(stripControl(t.getTitle()));
+        safe.setTitle(wrapInSentinels(stripControl(t.getTitle())));
         safe.setDescription(wrapInSentinels(stripControl(t.getDescription())));
         safe.setPriority(t.getPriority());
         safe.setStatus(t.getStatus());
