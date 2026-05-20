@@ -37,6 +37,49 @@
     .pill.IN_PROGRESS { color: #9a6700; border-color: #fae17d; background: #fff8c5; }
     .pill.DONE        { color: #1a7f37; border-color: #aceebb; background: #dafbe1; }
 
+    /* Inline editable enum cells — styled to echo the pill look so the table
+       doesn't suddenly look like a plain HTML form. */
+    select.cell { padding: 0.1rem 0.4rem; font-size: 0.85em; border-radius: 10px;
+                  border: 1px solid; background: white; cursor: pointer; }
+    select.cell:disabled { opacity: 0.6; cursor: wait; }
+    select.cell.LOW, select.cell.DONE        { color: #1a7f37; border-color: #aceebb; background: #dafbe1; }
+    select.cell.MEDIUM, select.cell.IN_PROGRESS { color: #9a6700; border-color: #fae17d; background: #fff8c5; }
+    select.cell.HIGH                            { color: #cf222e; border-color: #ffcecb; background: #ffebe9; }
+    select.cell.TODO                            { color: #0969da; border-color: #b6e3ff; background: #ddf4ff; }
+
+    /* Inline text/date cells — blend in until hovered/focused so the table
+       still reads as a table, not a form. */
+    .cell-input { padding: 0.15rem 0.3rem; border: 1px solid transparent;
+                  background: transparent; font: inherit; box-sizing: border-box; }
+    .cell-input:hover    { border-color: #d0d7de; background: white; border-radius: 4px; }
+    .cell-input:focus    { border-color: #0969da; background: white; border-radius: 4px; outline: none; }
+    .cell-input:disabled { opacity: 0.6; cursor: wait; }
+    /* Title is a textarea so long titles wrap inside the cell instead of
+       horizontally scrolling inside a single-line input. Auto-grown by JS. */
+    textarea.cell-input { width: 100%; min-width: 14rem; min-height: 1.6em;
+                          resize: none; overflow: hidden; line-height: 1.4;
+                          white-space: pre-wrap; word-break: break-word; }
+
+    /* Per-row action buttons (Delete, View desc) share one compact size so
+       the actions cell doesn't have one chunky button next to a tiny one. */
+    button.desc, button.del { font-size: 0.85em; padding: 0.1rem 0.5rem; }
+    tr.desc-row td { background: #fafbfc; }
+    .desc-panel { white-space: pre-wrap; word-break: break-word;
+                  padding: 0.2rem 0.4rem; color: #444; }
+
+    /* Toast notifications — top-center, stacked, click-to-dismiss, auto-fade */
+    #toastHost { position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
+                 z-index: 1000; display: flex; flex-direction: column; gap: 0.5rem;
+                 max-width: 460px; width: max-content; pointer-events: none; }
+    .toast { padding: 0.65rem 0.9rem; border: 1px solid; border-radius: 6px;
+             box-shadow: 0 4px 12px rgba(0,0,0,0.12); font-size: 0.9em;
+             pointer-events: auto; cursor: pointer;
+             animation: toast-in 0.18s ease-out; }
+    .toast.err  { color: #cf222e; border-color: #ffcecb; background: #ffebe9; }
+    .toast.ok   { color: #1a7f37; border-color: #aceebb; background: #dafbe1; }
+    .toast.info { color: #0969da; border-color: #b6e3ff; background: #ddf4ff; }
+    @keyframes toast-in { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
     /* Subtask list */
     ol.subtasks { padding-left: 1.4rem; margin: 0; }
     ol.subtasks li { padding: 0.25rem 0; }
@@ -62,6 +105,7 @@
   <div id="stubBadge" class="stub-badge">
     [STUB MODE — set OPENAI_API_KEY for real AI]
   </div>
+  <div id="toastHost" aria-live="polite"></div>
 
   <section>
     <h2>Tasks</h2>
@@ -81,6 +125,9 @@
       <input id="cDue" type="date" />
       <select id="cPriority">
         <option>LOW</option><option selected>MEDIUM</option><option>HIGH</option>
+      </select>
+      <select id="cStatus">
+        <option selected>TODO</option><option>IN_PROGRESS</option><option>DONE</option>
       </select>
       <button id="createBtn" data-label="Create" onclick="createTask()">Create</button>
     </div>
@@ -152,37 +199,181 @@ async function refreshStubBadge() {
   } catch (e) { /* ignore */ }
 }
 
+// Cached so inline-edit dropdowns can build a full PUT body without an extra GET.
+let tasksById = {};
+
+const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH'];
+const STATUSES   = ['TODO', 'IN_PROGRESS', 'DONE'];
+
+function selectCell(field, current, id) {
+  const opts = (field === 'priority' ? PRIORITIES : STATUSES)
+      .map(v => `<option value="${v}"${v === current ? ' selected' : ''}>${v}</option>`)
+      .join('');
+  return `<select class="cell ${current}" data-id="${id}" data-field="${field}">${opts}</select>`;
+}
+
+function inputCell(field, value, id, type = 'text') {
+  const v = value == null ? '' : escapeHtml(value);
+  if (field === 'title') {
+    // textarea so long titles wrap onto multiple lines inside the cell;
+    // height is auto-grown via autoGrow() after render and on every input.
+    return `<textarea class="cell-input" rows="1" data-id="${id}" data-field="${field}">${v}</textarea>`;
+  }
+  return `<input type="${type}" class="cell-input" data-id="${id}" data-field="${field}" value="${v}">`;
+}
+
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
+/**
+ * Lightweight toast notifications (replaces alert()). Stacked bottom-right,
+ * click-to-dismiss, auto-fade after `durationMs`. Visually distinct kinds:
+ * 'err' (red), 'ok' (green), 'info' (blue).
+ */
+function showToast(message, kind = 'err', durationMs = 5000) {
+  const host = document.getElementById('toastHost');
+  if (!host) return;
+  const t = document.createElement('div');
+  t.className = `toast ${kind}`;
+  t.textContent = message;
+  t.title = 'Click to dismiss';
+  t.onclick = () => t.remove();
+  host.appendChild(t);
+  setTimeout(() => t.remove(), durationMs);
+}
+
+/** Format an API error from api()'s thrown {status, body} into a short string. */
+function formatApiError(e) {
+  const status = e.status ?? '?';
+  const b = e.body;
+  if (b?.fields) {
+    const pairs = Object.entries(b.fields).map(([k, v]) => `${k}: ${v}`).join(', ');
+    return `HTTP ${status} — ${pairs}`;
+  }
+  if (b?.reason) return `HTTP ${status} — ${b.reason}`;
+  if (b?.error)  return `HTTP ${status} — ${b.error}`;
+  return `HTTP ${status}`;
+}
+
 async function loadTasks() {
   const tasks = await api('/tasks');
   const tbody = document.getElementById('taskBody');
   tbody.innerHTML = '';
   const sel = document.getElementById('bTask');
   sel.innerHTML = '';
+  tasksById = {};
   if (tasks.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" class="muted">No tasks yet — create one below or use AI suggest.</td></tr>';
   }
   for (const t of tasks) {
+    tasksById[t.id] = t;
+    const hasDesc = t.description != null && t.description.trim() !== '';
+    const descBtn = hasDesc
+        ? `<button data-id="${t.id}" class="desc">View desc</button>`
+        : '';
     const tr = document.createElement('tr');
     tr.innerHTML =
         `<td>${t.id}</td>
-         <td>${escapeHtml(t.title)}</td>
-         <td><span class="pill ${t.priority}">${t.priority}</span></td>
-         <td><span class="pill ${t.status}">${t.status}</span></td>
-         <td>${t.dueDate ?? ''}</td>
-         <td><button data-id="${t.id}" class="del">Delete</button></td>`;
+         <td>${inputCell('title',    t.title,   t.id, 'text')}</td>
+         <td>${selectCell('priority', t.priority, t.id)}</td>
+         <td>${selectCell('status',   t.status,   t.id)}</td>
+         <td>${inputCell('dueDate',  t.dueDate, t.id, 'date')}</td>
+         <td>
+           ${descBtn}
+           <button data-id="${t.id}" class="del">Delete</button>
+         </td>`;
     tbody.appendChild(tr);
+    if (hasDesc) {
+      const dr = document.createElement('tr');
+      dr.className = 'desc-row';
+      dr.dataset.id = t.id;
+      dr.style.display = 'none';
+      dr.innerHTML = `<td colspan="6"><div class="desc-panel">${escapeHtml(t.description)}</div></td>`;
+      tbody.appendChild(dr);
+    }
     const opt = document.createElement('option');
     opt.value = t.id;
     opt.textContent = `#${t.id} ${t.title}`;
     sel.appendChild(opt);
+  }
+  // Inline edit: any element with [data-field] (select, input, textarea) PUTs on change.
+  for (const ctrl of document.querySelectorAll('[data-field]')) {
+    ctrl.onchange = () => inlineUpdate(ctrl);
+  }
+  // Auto-grow title textareas to fit their wrapped content, both on render
+  // (so long titles already wrap on first paint) and on every keystroke.
+  for (const ta of document.querySelectorAll('textarea.cell-input')) {
+    autoGrow(ta);
+    ta.addEventListener('input', () => autoGrow(ta));
+  }
+  // Toggle the description panel below the row.
+  for (const btn of document.querySelectorAll('button.desc')) {
+    btn.onclick = () => {
+      const row = document.querySelector(`tr.desc-row[data-id="${btn.dataset.id}"]`);
+      if (!row) return;
+      const hidden = row.style.display === 'none';
+      row.style.display = hidden ? '' : 'none';
+      btn.textContent = hidden ? 'Hide desc' : 'View desc';
+    };
   }
   for (const btn of document.querySelectorAll('button.del')) {
     btn.onclick = async () => {
       btn.disabled = true;
       btn.textContent = 'Deleting…';
       try { await api('/tasks/' + btn.dataset.id, { method: 'DELETE' }); loadTasks(); }
-      catch (e) { btn.disabled = false; btn.textContent = 'Delete'; }
+      catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Delete';
+        showToast(`Delete failed: ${formatApiError(e)}`);
+      }
     };
+  }
+}
+
+async function inlineUpdate(control) {
+  const id     = parseInt(control.dataset.id, 10);
+  const field  = control.dataset.field;             // priority | status | title | dueDate
+  const task   = tasksById[id];
+  if (!task) return;
+  const isEnum = field === 'priority' || field === 'status';
+
+  // Normalize: empty dueDate input means null. title is required and will
+  // round-trip an empty string to the server, which returns 400 — we surface
+  // that via a toast and revert the field to its previous server value.
+  const rawNext = control.value;
+  const next    = (field === 'dueDate' && rawNext === '') ? null : rawNext;
+  const prev    = task[field];
+  if ((prev ?? null) === (next ?? null)) return;
+
+  control.disabled = true;
+  if (isEnum) control.className = `cell ${next}`;
+
+  // PUT is a full replace: send the cached row with only the changed field swapped.
+  const body = {
+    title: task.title, description: task.description, dueDate: task.dueDate,
+    priority: task.priority, status: task.status
+  };
+  body[field] = next;
+
+  try {
+    const updated = await api('/tasks/' + id, { method: 'PUT', body: JSON.stringify(body) });
+    tasksById[id] = updated;
+    // Keep the breakdown task-picker label in sync if the title changed.
+    if (field === 'title') {
+      const opt = document.querySelector(`#bTask option[value="${id}"]`);
+      if (opt) opt.textContent = `#${id} ${updated.title}`;
+    }
+  } catch (e) {
+    // Revert UI so it reflects actual server state, then surface the
+    // failure via a non-blocking toast (no native alert dialog).
+    control.value = prev == null ? '' : prev;
+    if (isEnum) control.className = `cell ${prev}`;
+    if (control.tagName === 'TEXTAREA') autoGrow(control);
+    showToast(`Update failed: ${formatApiError(e)}`);
+  } finally {
+    control.disabled = false;
   }
 }
 
@@ -190,17 +381,6 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   }[c]));
-}
-
-function renderError(container, e) {
-  const status = e.status ?? '?';
-  const body = e.body ? JSON.stringify(e.body, null, 2) : String(e.message || e);
-  container.innerHTML =
-    `<div class="card"><span class="err">Request failed (HTTP ${status})</span>
-       <details class="raw" open><summary>Response body</summary>
-         <pre>${escapeHtml(body)}</pre>
-       </details>
-     </div>`;
 }
 
 function renderRaw(obj) {
@@ -211,13 +391,17 @@ function renderRaw(obj) {
 
 async function createTask() {
   const out = document.getElementById('cOut');
+  if (!document.getElementById('cTitle').value.trim()) {
+    showToast('Title is required'); return;
+  }
   await withBusy('createBtn', 'Creating…', async () => {
     try {
       const body = {
         title: document.getElementById('cTitle').value,
         description: document.getElementById('cDesc').value || null,
         dueDate: document.getElementById('cDue').value || null,
-        priority: document.getElementById('cPriority').value
+        priority: document.getElementById('cPriority').value,
+        status:   document.getElementById('cStatus').value
       };
       const r = await api('/tasks', { method: 'POST', body: JSON.stringify(body) });
       out.innerHTML =
@@ -227,7 +411,8 @@ async function createTask() {
          </div>`;
       loadTasks();
     } catch (e) {
-      renderError(out, e);
+      out.innerHTML = '';
+      showToast(`Create failed: ${formatApiError(e)}`);
     }
   });
 }
@@ -251,6 +436,12 @@ function renderSuggestion(s) {
 
 async function suggest() {
   const out = document.getElementById('sOut');
+  // Client-side guard so the empty case is a friendly toast, not a 400.
+  const text = document.getElementById('sText').value.trim();
+  if (!text) {
+    showToast('Enter some text first — e.g. "remind me to ship the report by Friday"');
+    return;
+  }
   await withBusy('suggestBtn', 'Thinking…', async () => {
     document.getElementById('acceptBtn').disabled = true;
     try {
@@ -263,7 +454,8 @@ async function suggest() {
       document.getElementById('acceptBtn').disabled = false;
     } catch (e) {
       lastSuggestion = null;
-      renderError(out, e);
+      out.innerHTML = '';
+      showToast(`Suggest failed: ${formatApiError(e)}`);
     }
   });
 }
@@ -280,7 +472,8 @@ async function acceptSuggestion() {
       document.getElementById('acceptBtn').disabled = true;
       loadTasks();
     } catch (e) {
-      renderError(out, e);
+      // Keep the suggestion card visible (so they can retry) — toast carries the failure.
+      showToast(`Save failed: ${formatApiError(e)}`);
     }
   });
 }
@@ -302,13 +495,14 @@ function renderBreakdown(b) {
 async function breakdown() {
   const id = document.getElementById('bTask').value;
   const out = document.getElementById('bOut');
-  if (!id) { out.innerHTML = '<span class="muted">No task selected.</span>'; return; }
+  if (!id) { showToast('Pick a task to break down first'); return; }
   await withBusy('breakdownBtn', 'Thinking…', async () => {
     try {
       const r = await api('/tasks/' + id + '/breakdown', { method: 'POST' });
       out.innerHTML = renderBreakdown(r);
     } catch (e) {
-      renderError(out, e);
+      out.innerHTML = '';
+      showToast(`Breakdown failed: ${formatApiError(e)}`);
     }
   });
 }

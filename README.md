@@ -91,8 +91,23 @@ gitignored so the key won't accidentally land in a commit.
 | POST   | `/tasks`        | Create a task |
 | GET    | `/tasks`        | List all tasks |
 | GET    | `/tasks/{id}`   | Get one task |
-| PUT    | `/tasks/{id}`   | Replace a task |
+| PUT    | `/tasks/{id}`   | Update a task (full replace — all required fields must be supplied) |
 | DELETE | `/tasks/{id}`   | Delete a task |
+
+In the UI, every editable field on a task — **title**, **priority**,
+**status**, and **due date** — is editable inline directly in the tasks
+table. Type a new title and tab out (long titles wrap onto multiple lines
+inside the cell), pick a new priority/status, or change the date; each
+fires `PUT /tasks/{id}` immediately with the full task body from the
+cached row (PUT is a full replace). The cell disables while in flight and
+reverts to the previous server value if the request fails, with a
+non-blocking red toast in the corner explaining what happened.
+
+Tasks with a description show a **View desc** button alongside Delete; it
+toggles an expandable panel below the row. Tasks without one omit the
+button. Editing the description text isn't inline (a textarea doesn't fit
+a table row gracefully) — use `curl` against `PUT /tasks/{id}` if you
+need to change one.
 
 A `Task` has: `id`, `title`, `description`, `dueDate`, `priority` (`LOW`/`MEDIUM`/`HIGH`),
 `status` (`TODO`/`IN_PROGRESS`/`DONE`), plus `createdAt` / `updatedAt`.
