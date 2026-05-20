@@ -1484,7 +1484,6 @@ class AiTaskServiceTest {
         assertThat(passed).doesNotContain("\u0000");
         assertThat(passed).doesNotContain("\u0007");
     }
-    }
 
     // --- Defense #3: delimiter fencing ---
     //
@@ -2164,6 +2163,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDate;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -2194,6 +2194,16 @@ class AiEndpointIntegrationTest {
         OpenAiClient mockOpenAiClient() {
             return Mockito.mock(OpenAiClient.class);
         }
+    }
+
+    @Test
+    void injectedOpenAiClient_isTheMockitoMock_notTheStub() {
+        // Guards against silent bean-conflict regressions: both SpringAiConfig
+        // and this @TestConfiguration register an OpenAiClient bean. @Primary
+        // should win, but if Spring's wiring order ever changes we want a
+        // loud failure here, not mysterious "stub data appeared in tests".
+        assertThat(Mockito.mockingDetails(openAiClient).isMock()).isTrue();
+        assertThat(openAiClient).isNotInstanceOf(StubOpenAiClient.class);
     }
 
     @Test
@@ -2247,7 +2257,7 @@ class AiEndpointIntegrationTest {
 ./gradlew test --tests AiEndpointIntegrationTest
 ```
 
-Expected: 3 tests pass.
+Expected: 4 tests pass (suggest happy path, breakdown happy path, breakdown 404, bean-identity guard).
 
 - [ ] **Step 3: Commit**
 
@@ -2547,20 +2557,33 @@ loadTasks();
 </html>
 ```
 
-- [ ] **Step 2: Boot the app and visually verify**
+- [ ] **Step 2: Boot the app and curl the meta endpoint to prove the page is served**
+
+> **Note for agentic executors:** the browser-based UI smoke test in this step requires a human. Don't claim the UI works from automated checks alone — only the human can confirm the badge renders, buttons respond, and the JSON results pane updates. Do the curl checks below and **stop**; the human will open the browser as part of Task 18 verification.
 
 ```bash
-./gradlew bootRun
+./gradlew bootRun &
+BOOT_PID=$!
+sleep 8
+# Page is served at the root
+curl -fsS -o /tmp/index.html -w "HTTP %{http_code}\n" http://localhost:8080/
+grep -q 'stub-badge' /tmp/index.html && echo "stub-badge markup present"
+# /meta returns stubMode flag
+curl -fsS http://localhost:8080/meta
+echo
+kill $BOOT_PID
+wait $BOOT_PID 2>/dev/null
 ```
 
-In another terminal or your browser, open `http://localhost:8080`. You should see:
-- The `[STUB MODE — set OPENAI_API_KEY for real AI]` yellow badge (since the env var is unset).
+Expected: `HTTP 200`, `stub-badge markup present`, `{"stubMode":true}`.
+
+**For the human (after the executor finishes):** open `http://localhost:8080` in a browser and confirm:
+- Yellow `[STUB MODE — set OPENAI_API_KEY for real AI]` badge in the header.
 - Empty task table.
 - Three sections: Create, AI suggest, AI breakdown.
-
-Try: create a task, then click Refresh; click Suggest with sample text; click Break down on the created task. All should show JSON responses.
-
-Stop the server with Ctrl-C.
+- Create a task, click Refresh — the table updates.
+- Click Suggest with sample text — result pane shows JSON.
+- Click Break down on the created task — subtask JSON appears.
 
 - [ ] **Step 3: Commit**
 
@@ -2806,9 +2829,11 @@ Expected: each curl returns valid JSON, `/meta` returns `{"stubMode":true}`, and
 
 Stop the server with Ctrl-C.
 
-- [ ] **Step 3: Browser check**
+- [ ] **Step 3: Browser check (HUMAN ONLY — executors stop here)**
 
-While the server is running, open `http://localhost:8080`. Confirm:
+> **For agentic executors:** the curl checks above prove the API works. The browser check is for the human — you cannot open a browser. Mark this step done only after the human reports back.
+
+The human should, while the server is running, open `http://localhost:8080` and confirm:
 - Yellow `[STUB MODE]` badge visible.
 - Create-task form works and the table refreshes.
 - AI suggest button populates the result pane.
