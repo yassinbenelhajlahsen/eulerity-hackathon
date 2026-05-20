@@ -7,6 +7,8 @@ break down complex tasks into subtasks.
 ## Quick start
 
 ```bash
+git clone https://github.com/yassinbenelhajlahsen/eulerity-hackathon.git
+cd eulerity-hackathon
 ./gradlew bootRun
 ```
 
