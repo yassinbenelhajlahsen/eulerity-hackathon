@@ -14,6 +14,8 @@ Then open **http://localhost:8080** in a browser. That's it — the app boots in
 **stub mode** (deterministic canned AI responses) with no setup. For real
 OpenAI calls, see [Stub mode](#stub-mode).
 
+Full agent transcript is available at [docs/agent-transcript.txt](docs/agent-transcript.txt)
+
 ## Prerequisites
 
 - Java 17 (any vendor; Temurin recommended).
