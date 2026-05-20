@@ -2219,9 +2219,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 // Pin api-key to empty so this test is deterministic even if the developer
 // running it has OPENAI_API_KEY set in their shell. The @TestConfiguration
-// mock OpenAiClient bean wins via @Primary regardless, but pinning the
-// property keeps Spring AI's auto-config in a known state.
-@SpringBootTest(properties = "spring.ai.openai.api-key=")
+// mock OpenAiClient bean wins via @Primary, but pinning api-key to empty
+// makes Spring AI 1.0.7's auto-configs crash on hasText() at boot — so we
+// also exclude all six OpenAI auto-configs. They contribute nothing here
+// (the @Primary mock supersedes everything they'd provide); the exclusion
+// only applies in this test class, so real-mode wiring is unaffected.
+@SpringBootTest(properties = {
+        "spring.ai.openai.api-key=",
+        "spring.autoconfigure.exclude=" +
+                "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration," +
+                "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration," +
+                "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration," +
+                "org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration," +
+                "org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration," +
+                "org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration"
+})
 @AutoConfigureMockMvc
 class AiEndpointIntegrationTest {
 
