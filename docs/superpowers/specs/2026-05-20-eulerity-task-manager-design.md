@@ -32,7 +32,7 @@ decisions are documented with reasons, not just outcomes.
 | OpenAI starter | `spring-ai-starter-model-openai` (managed by BOM) | Note: name changed at 1.0 GA from the pre-GA `spring-ai-openai-spring-boot-starter`. Older blog posts reference the old name. |
 | H2 | 2.3.x (managed by Boot) | In-memory, runtime scope. No `MODE=LEGACY` — keyword collisions only affect projects that pick H2-reserved words for columns; our schema avoids them. |
 | Hibernate | 6.6.x (managed by Boot) | |
-| OpenAI model | `gpt-4.1-mini` | Officially supports Structured Outputs (`response_format=json_schema`); strong instruction-following at low cost/latency. |
+| OpenAI model | `gpt-4o-mini` | Battle-tested for `response_format=json_schema` since 2024-07-18. `gpt-4.1-mini` lists structured output as supported but has open community reports of intermittent failures; for a cold-run evaluation, picking the model with the longest production track record on this exact feature. |
 | Build tool | Gradle (wrapper) | User preference. Wrapper checked in so `./gradlew` works with no local Gradle install. |
 
 **Version-pinning rule:** No `+`, no `latest.release`. Spring AI version goes
@@ -111,11 +111,15 @@ class Task {
 }
 ```
 
-- DDL auto-generated (`spring.jpa.hibernate.ddl-auto=update`). Justified by H2
-  in-memory + no migration history needed.
+- DDL auto-generated (`spring.jpa.hibernate.ddl-auto=create-drop`). H2 dies
+  with the JVM, so there's no schema to diff between restarts; `create-drop`
+  is honest about that and is what a reviewer familiar with Spring will
+  expect. `update` would imply a persistent DB.
 - Status defaults to `TODO` if omitted on create.
 - Enums stored as `STRING` so the DB rows are readable when debugging via the
-  H2 console at `/h2-console` (enabled in dev profile only).
+  H2 console at `/h2-console`. Console is enabled unconditionally (matches
+  §10 yml). Safe because the DB is in-memory and the brief excludes auth from
+  scope.
 
 ## 6. REST endpoints
 
@@ -207,7 +211,12 @@ OpenAiClient openAiClient(
     @Value("${spring.ai.openai.api-key:}") String key,
     ObjectProvider<ChatClient.Builder> chatClientBuilder) {
   if (key == null || key.isBlank()) {
-    log.warn("OPENAI_API_KEY not set; using stub AI client");
+    log.warn("============================================================");
+    log.warn("OPENAI_API_KEY not set — running with STUB AI client.");
+    log.warn("AI endpoints (/tasks/suggest, /tasks/{id}/breakdown) will");
+    log.warn("return deterministic canned data, not real model output.");
+    log.warn("Set OPENAI_API_KEY in your environment to enable real calls.");
+    log.warn("============================================================");
     return new StubOpenAiClient();
   }
   return new SpringAiOpenAiClient(chatClientBuilder.getObject().build());
@@ -286,6 +295,12 @@ Single file: `src/main/resources/static/index.html`. Served by Spring Boot at
 the application root. No build step, no framework, no CDN dependencies (works
 offline once the JAR is built).
 
+**Stub-mode banner.** A small endpoint `GET /api/meta` returns
+`{ "stubMode": boolean }`. The page calls it on load and renders a yellow
+`[STUB MODE — set OPENAI_API_KEY for real AI]` badge in the header when true.
+Paired with the startup log line (§7.1), no reviewer will get canned data
+without realizing it.
+
 Three panels in one page:
 
 1. **Tasks list.** Table populated by `GET /tasks`. Refresh button. Per-row:
@@ -319,8 +334,13 @@ all tests).
   by id → PUT → GET by id (verify mutation) → DELETE → GET by id (404). Real
   Spring context, real H2, no service-layer mocks.
 - `AiEndpointIntegrationTest` — `@SpringBootTest` with a `@TestConfiguration`
-  that overrides `OpenAiClient` to a Mockito mock. Stubs it to return canned
-  `SuggestedTask` / `BreakdownResponse`. Asserts wiring and response shape.
+  that overrides `OpenAiClient` to a Mockito mock. **Covers both AI endpoints**:
+  one test stubs `suggest(...)` and exercises `POST /tasks/suggest`; another
+  stubs `breakdown(...)` and exercises `POST /tasks/{id}/breakdown` (including
+  the 404 path for a missing task ID). Asserts wiring and response shape for
+  each. The brief requires "at least one" test for an AI endpoint; we test
+  both because building two endpoints and only testing one looks like an
+  oversight, not a scope decision.
 
 Test naming follows Spring convention: `methodUnderTest_state_expectedResult`.
 
@@ -339,7 +359,7 @@ spring:
       api-key: ${OPENAI_API_KEY:}
       chat:
         options:
-          model: gpt-4.1-mini
+          model: gpt-4o-mini
           temperature: 0.2
           # All chat options live HERE only. Do not duplicate in
           # ChatClient.Builder.defaultOptions() or per-call .options() —
@@ -347,7 +367,7 @@ spring:
           # silently override. Single source of truth = this yml block.
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: create-drop   # H2 dies with the JVM; no schema to preserve
   datasource:
     url: jdbc:h2:mem:tasks;DB_CLOSE_DELAY=-1
     username: sa
@@ -374,23 +394,25 @@ The README at the repo root is what a reviewer reads first. It must include:
 - **Prereqs:** Java 17, internet access. `OPENAI_API_KEY` is optional — the
   app falls back to a deterministic stub if unset.
 - **Run:** `./gradlew bootRun` → open **`http://localhost:8080`** (root URL,
-  not `/index.html` — the static page is served from the application root by
-  Spring Boot's default resource handler).
+  not `/index.html`, and **not** by opening the HTML file directly from disk
+  — same-origin requirements will block `fetch()` calls from `file://`).
 - **Test:** `./gradlew test`.
+- **Stub mode call-out:** explicit note that with no `OPENAI_API_KEY` set,
+  the app boots in stub mode — AI endpoints return canned data, the startup
+  log prints a banner, and the UI header shows a `[STUB MODE]` badge.
 - **AI endpoint reference:** request + response example for both
   `/tasks/suggest` and `/tasks/{id}/breakdown`, in both stub and real modes.
 - **Prompt-injection defenses:** one sentence per defense (the 9 in §7.2).
+- **Input quirks worth knowing:**
+  - `dueDate` is validated as `>= today - 1 day` on AI output. If you test
+    with a past date and get a 422, that's why — see §7.2 #7 for the
+    timezone rationale.
 - **Design choices:** Gradle (not Maven), Spring AI (not raw HTTP), stub
-  fallback as default, in-memory H2, why we don't persist AI output. Each with
-  a one-line reason.
+  fallback as default, in-memory H2, `create-drop` DDL, why we don't persist
+  AI output. Each with a one-line reason.
 
 ## 12. Risks and unknowns
 
-- **Spring AI structured-output reliability with gpt-4.1-mini.** Officially
-  supported per OpenAI docs, but at least one community report shows
-  intermittent issues with `response_format=json_schema` on this model.
-  Mitigation: post-call validation (§7.2) catches any malformed output and
-  returns 502 rather than crashing.
 - **H2 reserved-keyword collisions.** None expected with our schema, but if
   Boot upgrades H2 mid-development to a version that adds a new reserved word
   we use, `MODE=LEGACY` or `NON_KEYWORDS=...` is the documented escape hatch.
