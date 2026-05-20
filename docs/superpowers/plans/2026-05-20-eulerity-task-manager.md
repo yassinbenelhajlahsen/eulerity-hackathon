@@ -1830,7 +1830,15 @@ public class AiTaskService {
 ./gradlew test --tests AiTaskServiceTest
 ```
 
-Expected: 10 tests pass.
+Expected: 10 tests pass (or 11 if the breakdown happy-path is counted).
+
+> **Transient red state across Tasks 10–13.** Adding `@Service AiTaskService`
+> introduces an `OpenAiClient` autowire dependency. No bean satisfies it until
+> Task 13 (`SpringAiConfig`) lands. So `./gradlew test` (full suite) will
+> show `TaskManagerApplicationTests` and `TaskCrudIntegrationTest` failing
+> with `NoSuchBeanDefinitionException` from now until Task 13 completes. Run
+> targeted tests with `--tests` instead during this stretch. The full suite
+> goes green again once Task 13 commits.
 
 - [ ] **Step 5: Commit**
 
