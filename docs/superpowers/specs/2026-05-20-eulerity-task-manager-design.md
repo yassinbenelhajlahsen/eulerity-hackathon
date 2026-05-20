@@ -6,7 +6,7 @@
 
 ## 1. Goal
 
-Build a Spring Boot 3.4 / Java 17 REST API for a personal task manager with H2
+Build a Spring Boot 3.5 / Java 17 REST API for a personal task manager with H2
 in-memory persistence, a minimal static HTML UI, and at least one
 AI-powered endpoint. Must build and start with a single command on a reviewer's
 machine with no setup beyond Java 17 and internet access.
@@ -27,11 +27,11 @@ decisions are documented with reasons, not just outcomes.
 | Component | Version | Why pinned |
 |---|---|---|
 | Java toolchain | 17 (LTS) | Brief requires it. Pinned via Gradle `languageVersion`, so a reviewer on JDK 17, 20, 21, etc. all produce identical artifacts. |
-| Spring Boot | 3.4.1 | Latest 3.4.x. Required by Spring AI 1.0.x. |
-| Spring AI BOM | 1.0.0 | GA, May 2025. Locks all `spring-ai-*` artifacts to a compatible set. |
+| Spring Boot | 3.5.0 | Latest stable. Spring AI 1.0.x officially supports both 3.4.x and 3.5.x; picking the newer line so we ship on the supported family with the longest forward runway. |
+| Spring AI BOM | 1.0.7 | Latest 1.0.x patch (the line that explicitly added Spring Boot 3.5 dependency-managed compatibility in 1.0.6). Spring AI 1.0.0 GA shipped against Boot 3.4.x — Boot 3.5.0 released 2 days later, so the exact `1.0.0 + 3.5.x` combo wasn't tested at GA. 1.0.7 is the safe pairing. |
 | OpenAI starter | `spring-ai-starter-model-openai` (managed by BOM) | Note: name changed at 1.0 GA from the pre-GA `spring-ai-openai-spring-boot-starter`. Older blog posts reference the old name. |
 | H2 | 2.3.x (managed by Boot) | In-memory, runtime scope. No `MODE=LEGACY` — keyword collisions only affect projects that pick H2-reserved words for columns; our schema avoids them. |
-| Hibernate | 6.6.x (managed by Boot) | |
+| Hibernate | 6.6.x (managed by Boot 3.5) | |
 | OpenAI model | `gpt-4o-mini` | Battle-tested for `response_format=json_schema` since 2024-07-18. `gpt-4.1-mini` lists structured output as supported but has open community reports of intermittent failures; for a cold-run evaluation, picking the model with the longest production track record on this exact feature. |
 | Build tool | Gradle (wrapper) | User preference. Wrapper checked in so `./gradlew` works with no local Gradle install. |
 

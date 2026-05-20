@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a Spring Boot 3.4 / Java 17 REST API for a personal task manager with CRUD endpoints, two AI-powered endpoints with prompt-injection defenses, an H2 in-memory DB, a minimal static UI, and a passing test suite — all runnable via `./gradlew bootRun` with no prior setup.
+**Goal:** Build a Spring Boot 3.5 / Java 17 REST API for a personal task manager with CRUD endpoints, two AI-powered endpoints with prompt-injection defenses, an H2 in-memory DB, a minimal static UI, and a passing test suite — all runnable via `./gradlew bootRun` with no prior setup.
 
 **Architecture:** Single Gradle module. `task/` package holds entity + CRUD; `ai/` package holds OpenAI integration behind an `OpenAiClient` interface (real `SpringAiOpenAiClient` or `StubOpenAiClient` default). Defense-in-depth on the AI layer: 9 layered pre-/post-call checks. All chat options pinned in `application.yml` to avoid duplication. Static `index.html` served from app root.
 
-**Tech Stack:** Java 17, Spring Boot 3.4.1, Spring AI 1.0.0 (`spring-ai-starter-model-openai`), Spring Data JPA, Bean Validation, H2 2.x in-memory, Gradle (wrapper), JUnit 5 + Mockito + MockMvc, OpenAI `gpt-4o-mini`.
+**Tech Stack:** Java 17, Spring Boot 3.5.0, Spring AI 1.0.7 (`spring-ai-starter-model-openai`), Spring Data JPA, Bean Validation, H2 2.x in-memory, Gradle (wrapper), JUnit 5 + Mockito + MockMvc, OpenAI `gpt-4o-mini`.
+
+> **Version note:** Spring AI 1.0.x officially supports Spring Boot 3.4.x and 3.5.x. We pair Boot 3.5.0 with Spring AI **1.0.7** (not 1.0.0 GA) because Boot 3.5.0 was released two days after the Spring AI 1.0.0 GA tag — 3.5 dependency-managed compatibility was added in Spring AI 1.0.6 and is the safe pairing. See spec §3.
 
 **Source spec:** `docs/superpowers/specs/2026-05-20-eulerity-task-manager-design.md`. Refer back when context is unclear.
 
@@ -61,7 +63,7 @@ Run from the repo root (which already contains `instructions.md`, `.gitignore`, 
 curl -fsSL https://start.spring.io/starter.zip \
   -d type=gradle-project \
   -d language=java \
-  -d bootVersion=3.4.1 \
+  -d bootVersion=3.5.0 \
   -d baseDir=. \
   -d groupId=com.eulerity \
   -d artifactId=taskmanager \
@@ -124,7 +126,7 @@ Overwrite `build.gradle` with:
 
 ```groovy
 plugins {
-    id 'org.springframework.boot' version '3.4.1'
+    id 'org.springframework.boot' version '3.5.0'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'java'
 }
@@ -139,7 +141,10 @@ java {
 }
 
 ext {
-    springAiVersion = '1.0.0'
+    // 1.0.7 (not 1.0.0): Boot 3.5.0 was released 2 days after Spring AI 1.0.0 GA.
+    // Spring AI 1.0.6 added Boot 3.5 dependency-managed compatibility; 1.0.7 is
+    // the latest 1.0.x and the safe pairing for Boot 3.5.x.
+    springAiVersion = '1.0.7'
 }
 
 repositories {
@@ -231,7 +236,7 @@ Expected: BUILD SUCCESSFUL, 1 test passes. Spring AI auto-configuration may log 
 ```bash
 git add build.gradle settings.gradle gradle gradlew gradlew.bat \
         src/main src/test
-git commit -m "Scaffold Spring Boot 3.4 project via Initializr with pinned versions"
+git commit -m "Scaffold Spring Boot 3.5 project via Initializr with pinned versions"
 ```
 
 ---
