@@ -1,0 +1,43 @@
+spring:
+  ai:
+    # Disable OpenAI model auto-configs that require an API key at startup.
+    # These are gated by spring.ai.model.* (havingValue="openai", matchIfMissing=true
+    # in Spring AI 1.0.7). Setting them to "none" prevents the auto-configs from
+    # activating so the context loads without OPENAI_API_KEY set.
+    # Chat is wired manually via SpringAiConfig (Task 13); all others are unused.
+    model:
+      chat: none
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: gpt-4o-mini
+          temperature: 0.2
+          # All chat options live HERE only. Do not duplicate in
+          # ChatClient.Builder.defaultOptions() or per-call .options() —
+          # Spring AI precedence is per-call > builder > yml, so duplicates
+          # silently override. Single source of truth = this yml block.
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate.format_sql: true
+  datasource:
+    url: jdbc:h2:mem:tasks;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+server:
+  port: 8080
+logging:
+  level:
+    com.eulerity.taskmanager.ai: DEBUG
