@@ -231,10 +231,21 @@ bug entirely.
 
 Selection (in `SpringAiConfig`):
 
+Detection reads the **OS environment variable directly**, not the resolved
+`spring.ai.openai.api-key` property. Spring AI 1.0.7's OpenAI auto-configs
+(chat, audio, image, etc.) call `Assert.hasText()` on the api-key at bean
+construction time — an empty value crashes the context at boot. We work around
+this by giving the spring property a placeholder default in `application.yml`
+(`api-key: ${OPENAI_API_KEY:stub-mode-no-real-calls}`). Reading that resolved
+property here would defeat stub-mode detection (the placeholder is non-empty),
+so the bean factory binds `${OPENAI_API_KEY:}` directly. The real
+`ChatClient` only ever sees traffic when `SpringAiOpenAiClient` is wired, and
+that only happens when the env var is genuinely set.
+
 ```java
 @Bean
 OpenAiClient openAiClient(
-    @Value("${spring.ai.openai.api-key:}") String key,
+    @Value("${OPENAI_API_KEY:}") String key,
     ObjectProvider<ChatClient.Builder> chatClientBuilder) {
   if (key == null || key.isBlank()) {
     log.warn("============================================================");

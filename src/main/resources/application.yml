@@ -1,20 +1,13 @@
 spring:
   ai:
-    # Disable OpenAI model auto-configs that require an API key at startup.
-    # These are gated by spring.ai.model.* (havingValue="openai", matchIfMissing=true
-    # in Spring AI 1.0.7). Setting them to "none" prevents the auto-configs from
-    # activating so the context loads without OPENAI_API_KEY set.
-    # Chat is wired manually via SpringAiConfig (Task 13); all others are unused.
-    model:
-      chat: none
-      embedding: none
-      image: none
-      moderation: none
-      audio:
-        speech: none
-        transcription: none
     openai:
-      api-key: ${OPENAI_API_KEY:}
+      # Placeholder satisfies Spring AI 1.0.7's hasText() assertion when
+      # OPENAI_API_KEY is unset. Stub-mode detection in SpringAiConfig
+      # reads OPENAI_API_KEY directly (not this property) so the placeholder
+      # is invisible to our application logic. The auto-configured ChatClient
+      # is only invoked from SpringAiOpenAiClient, which is only wired when
+      # the real env var is set.
+      api-key: ${OPENAI_API_KEY:stub-mode-no-real-calls}
       chat:
         options:
           model: gpt-4o-mini

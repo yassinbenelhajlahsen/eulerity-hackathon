@@ -185,7 +185,14 @@ Create `src/main/resources/application.yml`:
 spring:
   ai:
     openai:
-      api-key: ${OPENAI_API_KEY:}
+      # Placeholder when OPENAI_API_KEY is unset. Spring AI 1.0.7's OpenAI
+      # auto-configs (chat, audio, etc.) call Assert.hasText() on the api-key
+      # at bean construction; an empty value crashes the context at boot.
+      # Stub-mode detection lives in SpringAiConfig (Task 13) and reads
+      # OPENAI_API_KEY directly — this property is opaque to our app logic,
+      # and the real ChatClient is only invoked when SpringAiOpenAiClient
+      # is wired (which only happens when the env var is set).
+      api-key: ${OPENAI_API_KEY:stub-mode-no-real-calls}
       chat:
         options:
           model: gpt-4o-mini
@@ -224,12 +231,7 @@ Expected: BUILD SUCCESSFUL, 1 test passes. Spring AI auto-configuration may log 
 
 **Troubleshooting:**
 - `Failed to determine a suitable driver class` → the H2 dep didn't make it in; re-check `build.gradle`.
-- Spring AI throws at boot complaining about an empty `api-key` (some 1.0.x patch versions are stricter than others) → add to `application.yml` under `spring.ai.openai`:
-  ```yaml
-        chat:
-          enabled: ${OPENAI_API_KEY:false}
-  ```
-  This gates the chat auto-config on the env var being present. Our `SpringAiConfig` in Task 13 doesn't depend on the auto-config bean when in stub mode, so disabling it is fine.
+- The placeholder api-key approach above is what makes Spring AI 1.0.7 boot with an unset `OPENAI_API_KEY`. Verified empirically against Spring AI 1.0.7: both `OpenAiChatAutoConfiguration.openAiApi` and `OpenAiAudioSpeechAutoConfiguration.openAiAudioSpeechModel` call `Assert.hasText()` on the resolved key at bean-construction time. An empty value crashes the context. A non-empty placeholder satisfies the assertion without ever being used (real calls only happen via `SpringAiOpenAiClient`, which is only wired when the real env var is set — see Task 13). Do NOT try to disable auto-configs via `spring.ai.model.*: none` — that breaks the real-mode path entirely.
 
 - [ ] **Step 6: Commit**
 
@@ -2090,7 +2092,11 @@ public class SpringAiConfig {
 
     @Bean
     public OpenAiClient openAiClient(
-            @Value("${spring.ai.openai.api-key:}") String apiKey,
+            // IMPORTANT: read OPENAI_API_KEY directly, NOT spring.ai.openai.api-key.
+            // The yml property has a placeholder default ("stub-mode-no-real-calls")
+            // to satisfy Spring AI 1.0.7's Assert.hasText() at boot; reading the
+            // property here would defeat stub-mode detection.
+            @Value("${OPENAI_API_KEY:}") String apiKey,
             ObjectProvider<ChatClient.Builder> chatClientBuilder) {
 
         boolean stub = apiKey == null || apiKey.isBlank();
