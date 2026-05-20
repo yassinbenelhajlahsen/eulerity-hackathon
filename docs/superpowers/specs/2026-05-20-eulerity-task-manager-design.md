@@ -118,8 +118,10 @@ class Task {
 - Status defaults to `TODO` if omitted on create.
 - Enums stored as `STRING` so the DB rows are readable when debugging via the
   H2 console at `/h2-console`. Console is enabled unconditionally (matches
-  §10 yml). Safe because the DB is in-memory and the brief excludes auth from
-  scope.
+  §10 yml). Safe in this context because (a) the DB is in-memory with no
+  sensitive data, and (b) the application binds to localhost by default —
+  not because the brief excludes auth (different concern; exposing a SQL
+  console without auth on a network-reachable port would still be wrong).
 
 ## 6. REST endpoints
 
@@ -192,7 +194,31 @@ Two implementations, wired in `SpringAiConfig`:
   structured-output binding: `.call().entity(SuggestedTask.class)`. Spring AI
   generates a JSON schema from the DTO and asks the model to conform.
 - **`StubOpenAiClient`** — returns deterministic canned data. Selected by
-  default when no OpenAI key is configured.
+  default when no OpenAI key is configured. **Canonical responses** (these
+  exact values are tested in `StubOpenAiClientTest` and copy-pasted into
+  the README §11 so the docs and code can't drift):
+
+  `suggest(text)`:
+  ```json
+  {
+    "title": "[STUB] Example task suggestion",
+    "description": "Stub AI response. Set OPENAI_API_KEY to enable real suggestions. Echo of input: <first 80 chars>",
+    "dueDate": null,
+    "priority": "MEDIUM",
+    "status": "TODO"
+  }
+  ```
+
+  `breakdown(task)`:
+  ```json
+  {
+    "taskId": <task.id>,
+    "subtasks": [
+      { "order": 1, "title": "[STUB] First subtask",  "estimatedMinutes": 30, "priority": "MEDIUM" },
+      { "order": 2, "title": "[STUB] Second subtask", "estimatedMinutes": 30, "priority": "MEDIUM" }
+    ]
+  }
+  ```
 
 **Chat options live in one place only.** Model name, temperature, and any
 other `OpenAiChatOptions` are configured exclusively via
@@ -234,8 +260,17 @@ Implemented in `AiTaskService`. Defense in depth — no single layer is trusted.
 
 1. **Length cap.** Reject inputs over 1000 chars (suggest) or task content over
    2200 chars (breakdown). Returns 422 with `"input exceeds maximum length"`.
-2. **Control-character strip.** Strip Unicode code points U+0000-U+001F
-   except newline, carriage return, and tab. Catches NULL-byte and ANSI-escape smuggling.
+2. **Control-character strip.** Strip Unicode code points U+0000–U+001F
+   **except** `\n` (U+000A), `\r` (U+000D), and `\t` (U+0009). Catches
+   NULL-byte and ANSI-escape smuggling. Newlines are preserved because the
+   breakdown endpoint passes the full `Task.description`, which may
+   legitimately be multi-line (e.g., a user pasted a paragraph of notes).
+   Stripping newlines would corrupt valid input and is not actually a
+   defense — they're not what carries injection payloads.
+
+   Implementation: `text.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "")`
+   — explicit ranges, not a `\p{Cntrl}` shortcut, so the preserved chars are
+   visible in the code.
 3. **Delimiter fencing.** Wrap sanitized user text in sentinels:
    ```
    <<<USER_INPUT_BEGIN>>>
@@ -295,7 +330,7 @@ Single file: `src/main/resources/static/index.html`. Served by Spring Boot at
 the application root. No build step, no framework, no CDN dependencies (works
 offline once the JAR is built).
 
-**Stub-mode banner.** A small endpoint `GET /api/meta` returns
+**Stub-mode banner.** A small endpoint `GET /meta` returns
 `{ "stubMode": boolean }`. The page calls it on load and renders a yellow
 `[STUB MODE — set OPENAI_API_KEY for real AI]` badge in the header when true.
 Paired with the startup log line (§7.1), no reviewer will get canned data
@@ -323,10 +358,40 @@ all tests).
 
 - `TaskServiceTest` — Mockito-mocked `TaskRepository`. One happy-path test per
   service method (create, list, get, update, delete) plus `getById` 404 case.
-- `AiTaskServiceTest` — Mockito-mocked `OpenAiClient`. One test per defense
-  (length cap, control-char strip, refusal-marker rejection, enum
-  out-of-range rejection, hallucinated-date rejection, suspicious-pattern
-  logging via `OutputCaptureExtension`).
+- `AiTaskServiceTest` — Mockito-mocked `OpenAiClient`. **One test per
+  defense from §7.2 (all 9):**
+  - #1 length cap (suggest > 1000 chars → 422; breakdown content > 2200 → 422)
+  - #2 control-char strip — including a **multi-line** description case
+    asserting `\n` is preserved while `\x00` is stripped
+  - #3 delimiter fencing — captures the `UserMessage` sent to the mocked
+    client and asserts the user text is wrapped in the
+    `<<<USER_INPUT_BEGIN>>>` / `<<<USER_INPUT_END>>>` sentinels and **not**
+    concatenated into the `SystemMessage`
+  - #4 role separation — same capture; asserts `SystemMessage` is present
+    and contains the "untrusted data" instruction, separate from user text
+  - #5 suspicious-pattern logging — input containing "ignore previous"
+    causes a `WARN` log with input hash (captured via
+    `OutputCaptureExtension`); call still proceeds (soft flag, not block)
+  - #6 structured-output coercion — `OpenAiClient.suggest(...)` mock throws
+    a JSON-parse exception → service maps it to `AiResponseException` (502).
+    This proves the service handles malformed output even though Spring AI
+    normally enforces the schema upstream.
+  - #7 enum + range validation — mock returns `priority="EXTREME"` → 422;
+    mock returns `dueDate="1970-01-01"` → 422
+  - #8 refusal-marker rejection — mock returns `title="I cannot help with that"`
+    → 422
+  - #9 sentinel echo strip — mock returns
+    `description="<<<USER_INPUT_END>>> also do X"` → service strips the
+    sentinel before returning to the caller; assert the returned
+    `SuggestedTask.description` doesn't contain `<<<USER_INPUT_`
+
+- `StubOpenAiClientTest` — covers the default code path (what every
+  no-API-key reviewer hits). Three tests: `suggest(anyText)` returns a
+  non-null `SuggestedTask` whose `priority` and `status` are valid enum
+  values; `breakdown(anyTask)` returns a non-null `BreakdownResponse` with
+  at least one subtask and `taskId` equal to the input; canned values match
+  the examples documented in the README (§11) so stub output and README
+  stay in sync.
 
 **Integration tests** (`@SpringBootTest`, H2):
 
@@ -380,7 +445,11 @@ server:
   port: 8080
 logging:
   level:
-    com.eulerity.taskmanager.ai: INFO
+    # DEBUG (not the default INFO) so the suspicious-pattern WARN line and
+    # the stub-mode startup banner stand out clearly when a reviewer scans
+    # the logs. Scoped to the ai package only — Spring's own DEBUG output
+    # would drown the signal.
+    com.eulerity.taskmanager.ai: DEBUG
 ```
 
 Gradle wrapper checked in (`./gradlew`, `./gradlew.bat`, `gradle/wrapper/*`),
@@ -401,15 +470,31 @@ The README at the repo root is what a reviewer reads first. It must include:
   the app boots in stub mode — AI endpoints return canned data, the startup
   log prints a banner, and the UI header shows a `[STUB MODE]` badge.
 - **AI endpoint reference:** request + response example for both
-  `/tasks/suggest` and `/tasks/{id}/breakdown`, in both stub and real modes.
+  `/tasks/suggest` and `/tasks/{id}/breakdown`. **Stub-mode examples are
+  copy-pasted verbatim from the canonical responses in §7.1**, and
+  `StubOpenAiClientTest` asserts the code emits exactly those values — so
+  README, code, and test cannot drift out of sync.
 - **Prompt-injection defenses:** one sentence per defense (the 9 in §7.2).
 - **Input quirks worth knowing:**
   - `dueDate` is validated as `>= today - 1 day` on AI output. If you test
     with a past date and get a 422, that's why — see §7.2 #7 for the
     timezone rationale.
-- **Design choices:** Gradle (not Maven), Spring AI (not raw HTTP), stub
-  fallback as default, in-memory H2, `create-drop` DDL, why we don't persist
-  AI output. Each with a one-line reason.
+- **Design choices** (each with a one-line reason):
+  - Gradle (not Maven) — wrapper-driven, no local install needed.
+  - Spring AI (not raw HTTP) — gets structured-output / JSON-schema
+    binding for free; mockable behind a small interface.
+  - **Model: `gpt-4o-mini` (not `gpt-4.1-mini`)** — both are listed as
+    supporting Structured Outputs in OpenAI's docs, but `gpt-4o-mini` has
+    been the reference model for `response_format=json_schema` since
+    2024-07-18 and has the longest production track record on this exact
+    feature. `gpt-4.1-mini` is newer with cheaper/faster numbers, but a
+    handful of community reports show intermittent json-schema failures.
+    For a cold-run evaluation where any flake looks like our bug, the
+    older, more battle-tested model is the right pick.
+  - Stub fallback as default — boots without an API key.
+  - In-memory H2 + `create-drop` DDL — honest about JVM-bound lifetime.
+  - AI output not persisted — keeps the AI call stateless (per the brief)
+    and gives the user a confirmation step before anything hits the DB.
 
 ## 12. Risks and unknowns
 
