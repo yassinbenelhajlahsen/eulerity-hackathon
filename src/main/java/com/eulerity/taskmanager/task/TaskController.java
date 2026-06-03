@@ -1,6 +1,7 @@
 package com.eulerity.taskmanager.task;
 
 import com.eulerity.taskmanager.task.dto.CreateTaskRequest;
+import com.eulerity.taskmanager.task.dto.MutationResponse;
 import com.eulerity.taskmanager.task.dto.TaskResponse;
 import com.eulerity.taskmanager.task.dto.UpdateTaskRequest;
 import jakarta.validation.Valid;
@@ -21,9 +22,9 @@ public class TaskController {
     }
 
     @PostMapping
-    public ResponseEntity<TaskResponse> create(@Valid @RequestBody CreateTaskRequest req) {
-        TaskResponse t = service.create(req);
-        return ResponseEntity.created(URI.create("/tasks/" + t.id())).body(t);
+    public ResponseEntity<MutationResponse> create(@Valid @RequestBody CreateTaskRequest req) {
+        MutationResponse r = service.create(req);
+        return ResponseEntity.created(URI.create("/tasks/" + r.task().id())).body(r);
     }
 
     @GetMapping
@@ -37,7 +38,7 @@ public class TaskController {
     }
 
     @PutMapping("/{id}")
-    public TaskResponse update(@PathVariable long id, @Valid @RequestBody UpdateTaskRequest req) {
+    public MutationResponse update(@PathVariable long id, @Valid @RequestBody UpdateTaskRequest req) {
         return service.update(id, req);
     }
 

@@ -358,12 +358,17 @@ async function inlineUpdate(control) {
   body[field] = next;
 
   try {
-    const updated = await api('/tasks/' + id, { method: 'PUT', body: JSON.stringify(body) });
+    const r = await api('/tasks/' + id, { method: 'PUT', body: JSON.stringify(body) });
+    const updated = r.task;
     tasksById[id] = updated;
     // Keep the breakdown task-picker label in sync if the title changed.
     if (field === 'title') {
       const opt = document.querySelector(`#bTask option[value="${id}"]`);
       if (opt) opt.textContent = `#${id} ${updated.title}`;
+    }
+    if (r.demoted) {
+      showToast(`"${r.demoted.title}" was moved to MEDIUM (HIGH limit reached)`, 'info');
+      loadTasks();
     }
   } catch (e) {
     // Revert UI so it reflects actual server state, then surface the
@@ -404,11 +409,15 @@ async function createTask() {
         status:   document.getElementById('cStatus').value
       };
       const r = await api('/tasks', { method: 'POST', body: JSON.stringify(body) });
+      const created = r.task;
       out.innerHTML =
         `<div class="card">
-           <span class="ok">✓ Created task #${r.id}: ${escapeHtml(r.title)}</span>
+           <span class="ok">✓ Created task #${created.id}: ${escapeHtml(created.title)}</span>
            ${renderRaw(r)}
          </div>`;
+      if (r.demoted) {
+        showToast(`"${r.demoted.title}" was moved to MEDIUM (HIGH limit reached)`, 'info');
+      }
       loadTasks();
     } catch (e) {
       out.innerHTML = '';
@@ -465,9 +474,13 @@ async function acceptSuggestion() {
   const out = document.getElementById('sOut');
   await withBusy('acceptBtn', 'Saving…', async () => {
     try {
-      const saved = await api('/tasks', { method: 'POST', body: JSON.stringify(lastSuggestion) });
+      const r = await api('/tasks', { method: 'POST', body: JSON.stringify(lastSuggestion) });
+      const saved = r.task;
       out.innerHTML = renderSuggestion(lastSuggestion) +
         `<div class="card"><span class="ok">✓ Saved as task #${saved.id}</span></div>`;
+      if (r.demoted) {
+        showToast(`"${r.demoted.title}" was moved to MEDIUM (HIGH limit reached)`, 'info');
+      }
       lastSuggestion = null;
       document.getElementById('acceptBtn').disabled = true;
       loadTasks();

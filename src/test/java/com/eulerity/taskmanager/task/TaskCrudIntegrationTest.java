@@ -20,7 +20,7 @@ class TaskCrudIntegrationTest {
 
     @Test
     void fullCrudLifecycle() throws Exception {
-        // CREATE
+        // CREATE — response is now { task, demoted }; demoted is null here.
         String createBody = """
                 { "title": "Buy milk", "description": "2%",
                   "dueDate": "2026-06-01", "priority": "MEDIUM" }
@@ -29,22 +29,23 @@ class TaskCrudIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(createBody))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))
-                .andExpect(jsonPath("$.id").exists())
-                .andExpect(jsonPath("$.status").value("TODO"))
+                .andExpect(jsonPath("$.task.id").exists())
+                .andExpect(jsonPath("$.task.status").value("TODO"))
+                .andExpect(jsonPath("$.demoted").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
-        long id = json.readTree(created).get("id").asLong();
+        long id = json.readTree(created).get("task").get("id").asLong();
 
-        // LIST
+        // LIST — unchanged shape (still bare TaskResponse[]).
         mvc.perform(get("/tasks"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1));
 
-        // GET BY ID
+        // GET BY ID — unchanged shape.
         mvc.perform(get("/tasks/{id}", id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Buy milk"));
 
-        // UPDATE
+        // UPDATE — response is now { task, demoted }.
         String updateBody = """
                 { "title": "Buy oat milk", "description": "barista blend",
                   "dueDate": "2026-06-02", "priority": "HIGH", "status": "IN_PROGRESS" }
@@ -52,15 +53,16 @@ class TaskCrudIntegrationTest {
         mvc.perform(put("/tasks/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON).content(updateBody))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("Buy oat milk"))
-                .andExpect(jsonPath("$.priority").value("HIGH"))
-                .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+                .andExpect(jsonPath("$.task.title").value("Buy oat milk"))
+                .andExpect(jsonPath("$.task.priority").value("HIGH"))
+                .andExpect(jsonPath("$.task.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.demoted").doesNotExist());
 
-        // DELETE
+        // DELETE — unchanged.
         mvc.perform(delete("/tasks/{id}", id))
                 .andExpect(status().isNoContent());
 
-        // GET BY ID after delete → 404
+        // GET BY ID after delete → 404 (unchanged).
         mvc.perform(get("/tasks/{id}", id))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("task_not_found"));

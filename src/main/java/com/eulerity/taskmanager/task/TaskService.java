@@ -1,31 +1,41 @@
 package com.eulerity.taskmanager.task;
 
 import com.eulerity.taskmanager.task.dto.CreateTaskRequest;
+import com.eulerity.taskmanager.task.dto.MutationResponse;
 import com.eulerity.taskmanager.task.dto.TaskResponse;
 import com.eulerity.taskmanager.task.dto.UpdateTaskRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class TaskService {
 
-    private final TaskRepository repo;
+    static final Set<Status> ACTIVE_STATUSES = EnumSet.of(Status.TODO, Status.IN_PROGRESS);
 
-    public TaskService(TaskRepository repo) {
+    private final TaskRepository repo;
+    private final int maxHighPriority;
+
+    public TaskService(TaskRepository repo,
+                       @Value("${tasks.priority.high.max:5}") int maxHighPriority) {
         this.repo = repo;
+        this.maxHighPriority = maxHighPriority;
     }
 
     @Transactional
-    public TaskResponse create(CreateTaskRequest req) {
+    public MutationResponse create(CreateTaskRequest req) {
         Task t = new Task();
         t.setTitle(req.title());
         t.setDescription(req.description());
         t.setDueDate(req.dueDate());
         t.setPriority(req.priority());
         t.setStatus(req.status() == null ? Status.TODO : req.status());
-        return TaskResponse.from(repo.save(t));
+        Task saved = repo.save(t);
+        return MutationResponse.of(saved, null);
     }
 
     @Transactional(readOnly = true)
@@ -40,14 +50,15 @@ public class TaskService {
     }
 
     @Transactional
-    public TaskResponse update(long id, UpdateTaskRequest req) {
+    public MutationResponse update(long id, UpdateTaskRequest req) {
         Task t = repo.findById(id).orElseThrow(() -> new TaskNotFoundException(id));
         t.setTitle(req.title());
         t.setDescription(req.description());
         t.setDueDate(req.dueDate());
         t.setPriority(req.priority());
         t.setStatus(req.status());
-        return TaskResponse.from(repo.save(t));
+        Task saved = repo.save(t);
+        return MutationResponse.of(saved, null);
     }
 
     @Transactional

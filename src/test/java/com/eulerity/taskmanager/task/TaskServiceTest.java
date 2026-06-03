@@ -17,13 +17,15 @@ import static org.mockito.Mockito.*;
 
 class TaskServiceTest {
 
+    private static final int MAX_HIGH = 5;
+
     private TaskRepository repo;
     private TaskService service;
 
     @BeforeEach
     void setUp() {
         repo = mock(TaskRepository.class);
-        service = new TaskService(repo);
+        service = new TaskService(repo, MAX_HIGH);
     }
 
     @Test
@@ -41,8 +43,9 @@ class TaskServiceTest {
         ArgumentCaptor<Task> cap = ArgumentCaptor.forClass(Task.class);
         verify(repo).save(cap.capture());
         assertThat(cap.getValue().getStatus()).isEqualTo(Status.TODO);
-        assertThat(resp.id()).isEqualTo(7L);
-        assertThat(resp.title()).isEqualTo("Buy milk");
+        assertThat(resp.task().id()).isEqualTo(7L);
+        assertThat(resp.task().title()).isEqualTo("Buy milk");
+        assertThat(resp.demoted()).isNull();
     }
 
     @Test
@@ -85,9 +88,10 @@ class TaskServiceTest {
                 LocalDate.of(2026, 6, 1), Priority.HIGH, Status.DONE);
         var resp = service.update(1L, req);
 
-        assertThat(resp.title()).isEqualTo("new title");
-        assertThat(resp.priority()).isEqualTo(Priority.HIGH);
-        assertThat(resp.status()).isEqualTo(Status.DONE);
+        assertThat(resp.task().title()).isEqualTo("new title");
+        assertThat(resp.task().priority()).isEqualTo(Priority.HIGH);
+        assertThat(resp.task().status()).isEqualTo(Status.DONE);
+        assertThat(resp.demoted()).isNull();
     }
 
     @Test
