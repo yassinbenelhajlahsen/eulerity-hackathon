@@ -168,4 +168,23 @@ class TaskServiceTest {
         // Both saves: the demoted task and the new task.
         verify(repo, times(2)).save(any(Task.class));
     }
+
+    @Test
+    void create_highWithDoneStatus_skipsCapCheck() {
+        when(repo.save(any(Task.class))).thenAnswer(inv -> {
+            Task t = inv.getArgument(0);
+            t.setId(20L);
+            return t;
+        });
+
+        var req = new CreateTaskRequest("archived urgent", null, null,
+                Priority.HIGH, Status.DONE);
+        var resp = service.create(req);
+
+        assertThat(resp.task().priority()).isEqualTo(Priority.HIGH);
+        assertThat(resp.task().status()).isEqualTo(Status.DONE);
+        assertThat(resp.demoted()).isNull();
+        verify(repo, never()).countByPriorityAndStatusIn(any(), anySet());
+        verify(repo, never()).findFirstByPriorityAndStatusInOrderByCreatedAtAsc(any(), anySet());
+    }
 }
