@@ -34,3 +34,7 @@ server:
 logging:
   level:
     com.eulerity.taskmanager.ai: DEBUG
+tasks:
+  priority:
+    high:
+      max: 5
