@@ -170,6 +170,102 @@ class TaskServiceTest {
     }
 
     @Test
+    void update_promoteToHigh_atCap_demotesOldest() {
+        Task existing = new Task();
+        existing.setId(1L);
+        existing.setTitle("was medium");
+        existing.setPriority(Priority.MEDIUM);
+        existing.setStatus(Status.TODO);
+        when(repo.findById(1L)).thenReturn(Optional.of(existing));
+        when(repo.countByPriorityAndStatusIn(eq(Priority.HIGH), anySet()))
+                .thenReturn(5L);
+        Task oldest = new Task();
+        oldest.setId(42L);
+        oldest.setTitle("oldest");
+        oldest.setPriority(Priority.HIGH);
+        oldest.setStatus(Status.TODO);
+        when(repo.findFirstByPriorityAndStatusInOrderByCreatedAtAsc(eq(Priority.HIGH), anySet()))
+                .thenReturn(Optional.of(oldest));
+        when(repo.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var req = new UpdateTaskRequest("was medium", null, null,
+                Priority.HIGH, Status.TODO);
+        var resp = service.update(1L, req);
+
+        assertThat(resp.task().priority()).isEqualTo(Priority.HIGH);
+        assertThat(resp.demoted()).isNotNull();
+        assertThat(resp.demoted().id()).isEqualTo(42L);
+        assertThat(resp.demoted().priority()).isEqualTo(Priority.MEDIUM);
+    }
+
+    @Test
+    void update_reopenDoneHighToTodo_atCap_demotesOldest() {
+        Task existing = new Task();
+        existing.setId(1L);
+        existing.setTitle("was done high");
+        existing.setPriority(Priority.HIGH);
+        existing.setStatus(Status.DONE);
+        when(repo.findById(1L)).thenReturn(Optional.of(existing));
+        when(repo.countByPriorityAndStatusIn(eq(Priority.HIGH), anySet()))
+                .thenReturn(5L);
+        Task oldest = new Task();
+        oldest.setId(42L);
+        oldest.setTitle("oldest");
+        oldest.setPriority(Priority.HIGH);
+        oldest.setStatus(Status.TODO);
+        when(repo.findFirstByPriorityAndStatusInOrderByCreatedAtAsc(eq(Priority.HIGH), anySet()))
+                .thenReturn(Optional.of(oldest));
+        when(repo.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var req = new UpdateTaskRequest("was done high", null, null,
+                Priority.HIGH, Status.TODO);
+        var resp = service.update(1L, req);
+
+        assertThat(resp.task().status()).isEqualTo(Status.TODO);
+        assertThat(resp.demoted()).isNotNull();
+        assertThat(resp.demoted().id()).isEqualTo(42L);
+    }
+
+    @Test
+    void update_editTitleOfActiveHigh_doesNotInvokeCap() {
+        Task existing = new Task();
+        existing.setId(1L);
+        existing.setTitle("active high");
+        existing.setPriority(Priority.HIGH);
+        existing.setStatus(Status.IN_PROGRESS);
+        when(repo.findById(1L)).thenReturn(Optional.of(existing));
+        when(repo.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var req = new UpdateTaskRequest("renamed", null, null,
+                Priority.HIGH, Status.IN_PROGRESS);
+        var resp = service.update(1L, req);
+
+        assertThat(resp.task().title()).isEqualTo("renamed");
+        assertThat(resp.demoted()).isNull();
+        verify(repo, never()).countByPriorityAndStatusIn(any(), anySet());
+        verify(repo, never()).findFirstByPriorityAndStatusInOrderByCreatedAtAsc(any(), anySet());
+    }
+
+    @Test
+    void update_completeActiveHigh_doesNotInvokeCap() {
+        Task existing = new Task();
+        existing.setId(1L);
+        existing.setTitle("active high");
+        existing.setPriority(Priority.HIGH);
+        existing.setStatus(Status.TODO);
+        when(repo.findById(1L)).thenReturn(Optional.of(existing));
+        when(repo.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var req = new UpdateTaskRequest("active high", null, null,
+                Priority.HIGH, Status.DONE);
+        var resp = service.update(1L, req);
+
+        assertThat(resp.task().status()).isEqualTo(Status.DONE);
+        assertThat(resp.demoted()).isNull();
+        verify(repo, never()).countByPriorityAndStatusIn(any(), anySet());
+    }
+
+    @Test
     void create_highWithDoneStatus_skipsCapCheck() {
         when(repo.save(any(Task.class))).thenAnswer(inv -> {
             Task t = inv.getArgument(0);

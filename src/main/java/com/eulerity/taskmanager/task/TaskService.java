@@ -60,13 +60,26 @@ public class TaskService {
     @Transactional
     public MutationResponse update(long id, UpdateTaskRequest req) {
         Task t = repo.findById(id).orElseThrow(() -> new TaskNotFoundException(id));
+
+        boolean wasActiveHigh =
+                t.getPriority() == Priority.HIGH && ACTIVE_STATUSES.contains(t.getStatus());
+
         t.setTitle(req.title());
         t.setDescription(req.description());
         t.setDueDate(req.dueDate());
         t.setPriority(req.priority());
         t.setStatus(req.status());
+
+        boolean becomesActiveHigh =
+                t.getPriority() == Priority.HIGH && ACTIVE_STATUSES.contains(t.getStatus());
+
+        Task demoted = null;
+        if (becomesActiveHigh && !wasActiveHigh) {
+            demoted = enforceHighPriorityCap();
+        }
+
         Task saved = repo.save(t);
-        return MutationResponse.of(saved, null);
+        return MutationResponse.of(saved, demoted);
     }
 
     @Transactional
