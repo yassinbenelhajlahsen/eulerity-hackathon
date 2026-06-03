@@ -34,8 +34,16 @@ public class TaskService {
         t.setDueDate(req.dueDate());
         t.setPriority(req.priority());
         t.setStatus(req.status() == null ? Status.TODO : req.status());
+
+        Task demoted = null;
+        boolean becomesActiveHigh =
+                t.getPriority() == Priority.HIGH && ACTIVE_STATUSES.contains(t.getStatus());
+        if (becomesActiveHigh) {
+            demoted = enforceHighPriorityCap();
+        }
+
         Task saved = repo.save(t);
-        return MutationResponse.of(saved, null);
+        return MutationResponse.of(saved, demoted);
     }
 
     @Transactional(readOnly = true)
@@ -67,5 +75,24 @@ public class TaskService {
             throw new TaskNotFoundException(id);
         }
         repo.deleteById(id);
+    }
+
+    /**
+     * If the active-HIGH count has reached the cap, demote the oldest active-HIGH
+     * task to MEDIUM and return it. Otherwise return null. Caller is responsible
+     * for ensuring this is invoked only when the incoming save would enter the
+     * active-HIGH set from outside it.
+     */
+    private Task enforceHighPriorityCap() {
+        long count = repo.countByPriorityAndStatusIn(Priority.HIGH, ACTIVE_STATUSES);
+        if (count < maxHighPriority) {
+            return null;
+        }
+        Task oldest = repo.findFirstByPriorityAndStatusInOrderByCreatedAtAsc(
+                Priority.HIGH, ACTIVE_STATUSES)
+                .orElseThrow(() -> new IllegalStateException(
+                        "active-HIGH count >= cap but no oldest task found"));
+        oldest.setPriority(Priority.MEDIUM);
+        return repo.save(oldest);
     }
 }
